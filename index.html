@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="format-detection" content="telephone=no">
+    <title>小女孩動態語音助手</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* iOS 滾動優化 */
+        body {
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        
+        /* 隱藏捲軸但保留功能 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .chat-bubble {
+            position: relative;
+            background: #fff5f7;
+            border-radius: 1.5rem;
+            padding: 1rem;
+            margin-top: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+        .chat-bubble::after {
+            content: '';
+            position: absolute;
+            top: -10px;
+            left: 20px;
+            border-width: 0 10px 10px 10px;
+            border-style: solid;
+            border-color: transparent transparent #fff5f7 transparent;
+        }
+        @keyframes wave {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+        .loading-dots span {
+            display: inline-block;
+            animation: wave 1s infinite;
+        }
+        .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+        
+        #mediaContainer:hover::before {
+            content: '點擊更換';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            color: white;
+            padding: 8px 20px;
+            border-radius: 999px;
+            font-size: 14px;
+            z-index: 10;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+        
+        /* iOS Input Zoom Fix: Ensure font size is at least 16px */
+        input, button {
+            font-size: 16px; 
+        }
+
+        /* 按鈕點擊效果 */
+        .btn-press:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="bg-pink-50 min-h-screen flex flex-col items-center p-2 sm:p-4">
+
+    <!-- 主容器 -->
+    <div class="max-w-md w-full bg-white rounded-[2rem] shadow-2xl overflow-hidden mt-2 sm:mt-4 mb-20 border-4 border-white transform transition-transform">
+        
+        <!-- 媒體顯示區域 (高度調整為 400px) -->
+        <div id="mediaContainer" class="relative h-[400px] bg-gray-900 cursor-pointer overflow-hidden group">
+            <!-- 預設圖片 -->
+            <img id="dogImage" src="https://images.unsplash.com/photo-1543466835-00a7907e9de1?q=80&w=1000&auto=format&fit=crop" alt="小狗" class="w-full h-full object-cover">
+            
+            <!-- 影片播放器 (iOS playsinline 是必須的) -->
+            <video id="dogVideo" class="w-full h-full object-cover hidden" playsinline webkit-playsinline></video>
+            
+            <input type="file" id="mediaInput" accept="image/*,video/*" class="hidden">
+            
+            <!-- 標題遮罩 -->
+            <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-6 pt-12">
+                <h1 class="text-white text-2xl font-black italic tracking-wider uppercase drop-shadow-md">Little Girl AI</h1>
+                <p class="text-pink-200 text-xs font-medium mt-1">iOS/Android Compatible</p>
+            </div>
+        </div>
+
+        <!-- 功能按鈕區 (Grid Layout) -->
+        <div class="grid grid-cols-2 gap-2 bg-pink-50 p-3">
+            <button id="visionBtn" class="btn-press bg-white hover:bg-pink-100 text-pink-600 py-3 rounded-xl text-sm font-bold shadow-sm border border-pink-200 flex items-center justify-center gap-1">
+                ✨ 讀心術
+            </button>
+            <button id="poemBtn" class="btn-press bg-white hover:bg-pink-100 text-pink-600 py-3 rounded-xl text-sm font-bold shadow-sm border border-pink-200 flex items-center justify-center gap-1">
+                📝 寫短詩
+            </button>
+            <button id="fortuneBtn" class="btn-press bg-white hover:bg-purple-100 text-purple-600 py-3 rounded-xl text-sm font-bold shadow-sm border border-purple-200 flex items-center justify-center gap-1">
+                🔮 測運勢
+            </button>
+            <button id="storyBtn" class="btn-press bg-white hover:bg-blue-100 text-blue-600 py-3 rounded-xl text-sm font-bold shadow-sm border border-blue-200 flex items-center justify-center gap-1">
+                🌙 講故事
+            </button>
+        </div>
+
+        <!-- 對話內容區 (調整內距以防溢出) -->
+        <div class="p-4 sm:p-6 bg-white min-h-[180px]">
+            <div id="status" class="text-sm font-bold text-pink-500 mb-2 flex items-center gap-2">
+                <span class="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                哈囉！我是愛學狗狗叫的小女孩～
+            </div>
+            
+            <div id="responseArea" class="chat-bubble min-h-[80px] text-gray-700 hidden border border-pink-100 shadow-sm text-base leading-relaxed">
+                <p id="responseText"></p>
+            </div>
+
+            <!-- 輸入區域 (加入 min-w-0 防止按鈕溢出) -->
+            <div class="mt-6 flex gap-2 items-end w-full">
+                <input type="text" id="userInput" placeholder="問我天氣、新聞或聊天..." 
+                    class="flex-1 min-w-0 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 focus:outline-none focus:border-pink-400 focus:ring-2 focus:ring-pink-100 transition-all text-gray-700 placeholder-gray-400">
+                <button id="sendBtn" class="bg-pink-500 hover:bg-pink-600 active:bg-pink-700 text-white px-5 py-3 rounded-2xl font-bold transition-all active:scale-95 shadow-md shadow-pink-200 whitespace-nowrap flex-shrink-0">
+                    傳送
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API Key 設定 (請在執行環境填入)
+        const apiKey = "AIzaSyBbahH__eG8C2WuIa2ZRBMgCZ4uUScUK8Y"; 
+        const systemPrompt = `你是一個非常可愛、天真無邪的5歲小女孩。
+        1. 說話非常甜美，語氣充滿童真。
+        2. 每句話都要加上「汪汪！」或「我是妹妹～」這類的口頭禪。
+        3. 非常喜歡小狗、甜點和抱抱。
+        4. 【重要能力】：你知道現在的時間，也可以搜尋網路回答關於「天氣」、「新聞」或「現在發生什麼事」的問題。
+        5. 回答時，要把生硬的新聞或天氣資訊，轉化成5歲小孩的理解方式說出來（例如：下雨就是雲在哭哭，新聞就是大人在說的故事）。
+        6. 回答要簡短（50字內），保持可愛。`;
+
+        // DOM 元素
+        const sendBtn = document.getElementById('sendBtn');
+        const visionBtn = document.getElementById('visionBtn');
+        const poemBtn = document.getElementById('poemBtn');
+        const fortuneBtn = document.getElementById('fortuneBtn');
+        const storyBtn = document.getElementById('storyBtn');
+        const userInput = document.getElementById('userInput');
+        const responseArea = document.getElementById('responseArea');
+        const responseText = document.getElementById('responseText');
+        const status = document.getElementById('status');
+        const dogImage = document.getElementById('dogImage');
+        const dogVideo = document.getElementById('dogVideo');
+        const mediaInput = document.getElementById('mediaInput');
+        const mediaContainer = document.getElementById('mediaContainer');
+
+        // --- 全新音訊引擎 (Web Audio API) ---
+        // 解決 Android/iOS 瀏覽器相容性問題
+        let audioContext = null;
+
+        function initAudioContext() {
+            if (!audioContext) {
+                // 支援標準與 Webkit 前綴 (Safari)
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            // 每次點擊都嘗試恢復 Context (解決 Android Chrome 自動暫停問題)
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        }
+
+        // 將所有按鈕都綁定音訊喚醒，確保使用者互動後可以播放聲音
+        const allButtons = [sendBtn, visionBtn, poemBtn, fortuneBtn, storyBtn];
+        allButtons.forEach(btn => {
+            btn.addEventListener('click', initAudioContext);
+            btn.addEventListener('touchstart', initAudioContext, { passive: true });
+        });
+        document.body.addEventListener('click', initAudioContext, { once: true });
+
+
+        // 媒體上傳與播放邏輯
+        mediaContainer.addEventListener('click', () => mediaInput.click());
+
+        mediaInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const url = URL.createObjectURL(file);
+            
+            if (file.type.startsWith('video/')) {
+                dogImage.classList.add('hidden');
+                dogVideo.classList.remove('hidden');
+                dogVideo.src = url;
+                
+                // 重置
+                dogVideo.loop = false;
+                dogVideo.muted = false;
+                dogVideo.currentTime = 0;
+
+                // 嘗試播放影片
+                const playPromise = dogVideo.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(error => {
+                        console.log("Auto-play blocked, muting.", error);
+                        dogVideo.muted = true;
+                        dogVideo.loop = true;
+                        dogVideo.play();
+                    });
+                }
+
+                dogVideo.onended = function() {
+                    dogVideo.muted = true;
+                    dogVideo.loop = true;
+                    dogVideo.play();
+                };
+
+                status.innerHTML = '<span class="text-green-600">影片載入成功！(點擊可更換)</span>';
+            } else {
+                dogVideo.classList.add('hidden');
+                dogVideo.pause();
+                dogVideo.onended = null;
+                
+                dogImage.classList.remove('hidden');
+                dogImage.src = url;
+                status.innerHTML = '<span class="text-green-600">照片載入成功！</span>';
+            }
+        });
+
+        // 指數退避重試
+        async function fetchWithRetry(url, options, maxRetries = 3) {
+            let retries = 0;
+            while (retries < maxRetries) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        if (response.status === 503 || response.status === 429) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+                        const errorText = await response.text();
+                        throw new Error(`API Error: ${response.status} - ${errorText}`);
+                    }
+                    return await response.json();
+                } catch (error) {
+                    console.warn(`Attempt ${retries + 1} failed: ${error.message}`);
+                    retries++;
+                    if (retries >= maxRetries) throw error;
+                    const delay = Math.pow(2, retries) * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        // --- 核心播放邏輯 (使用 AudioContext 直接解碼 PCM) ---
+        async function playPcmData(base64Data, sampleRate) {
+            try {
+                // 1. 初始化檢查
+                initAudioContext();
+                
+                // 2. Base64 解碼
+                const binaryString = atob(base64Data);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                
+                // 3. 轉換為 Int16 (API 回傳的是 16-bit PCM)
+                // 注意：這裡假設是 little-endian，大部分 API 都是
+                const int16Data = new Int16Array(bytes.buffer);
+                
+                // 4. 創建 AudioBuffer
+                // 1 channel (單聲道), 長度, 採樣率
+                const audioBuffer = audioContext.createBuffer(1, int16Data.length, sampleRate);
+                
+                // 5. 填入數據 (將 Int16 轉為 Float32, 範圍 -1.0 到 1.0)
+                const channelData = audioBuffer.getChannelData(0);
+                for (let i = 0; i < int16Data.length; i++) {
+                    channelData[i] = int16Data[i] / 32768.0;
+                }
+                
+                // 6. 播放
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioContext.destination);
+                source.start(0);
+                
+                status.innerText = "嘻嘻，說完啦！";
+
+            } catch (e) {
+                console.error("Audio Playback Error:", e);
+                status.innerText = "聲音出不來汪...";
+            }
+        }
+
+        // TTS 語音生成
+        async function speak(text) {
+            // 再次確保 AudioContext 是醒著的
+            initAudioContext();
+            
+            status.innerText = "小女孩正在說話...";
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+                const result = await fetchWithRetry(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: "gemini-2.5-flash-preview-tts",
+                        contents: [{ parts: [{ text: `用可愛小女孩的語氣說：${text}` }] }],
+                        generationConfig: {
+                            responseModalities: ["AUDIO"],
+                            speechConfig: { 
+                                voiceConfig: { 
+                                    prebuiltVoiceConfig: { voiceName: "Aoede" } 
+                                } 
+                            }
+                        }
+                    })
+                });
+                
+                const audioPart = result.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+                if (audioPart) {
+                    // 解析採樣率，預設 24000
+                    const sampleRate = parseInt(audioPart.mimeType.match(/rate=(\d+)/)?.[1] || "24000");
+                    // 使用新的播放引擎
+                    await playPcmData(audioPart.data, sampleRate);
+                }
+            } catch (e) {
+                console.error("TTS Error:", e);
+                status.innerText = "哎呀，我說不出話了汪！";
+            }
+        }
+
+        // 核心對話功能
+        async function handleInteraction() {
+            const input = userInput.value.trim();
+            if (!input) return;
+
+            userInput.value = '';
+            userInput.blur();
+            
+            status.innerHTML = '讓我想想喔<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
+            responseArea.classList.remove('hidden');
+            responseText.innerText = "...";
+
+            const now = new Date().toLocaleString('zh-TW', { hour12: true, dateStyle: 'full', timeStyle: 'short' });
+            const dynamicSystemPrompt = systemPrompt + `\n(現在時間：${now}。若問新聞天氣請用搜尋工具。)`;
+
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                const data = await fetchWithRetry(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: input }] }],
+                        systemInstruction: { parts: [{ text: dynamicSystemPrompt }] },
+                        tools: [{ google_search: {} }]
+                    })
+                });
+                
+                const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "哎呀，我沒聽清楚汪！";
+                responseText.innerText = reply;
+                await speak(reply);
+            } catch (error) {
+                console.error("Chat Error:", error);
+                status.innerText = "嗚嗚，我的腦袋打結了...";
+                responseText.innerText = "連線有點問題，請再試一次汪！";
+            }
+        }
+
+        // 功能 1: 視覺理解 - 讀心術
+        async function analyzePet() {
+            if (dogVideo.classList.contains('hidden') && !dogImage.src) {
+                alert("請先上傳照片或影片喔！");
+                return;
+            }
+
+            status.innerHTML = '正在讀取狗狗的心聲... ✨';
+            
+            try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                let source = dogImage;
+                let width = dogImage.naturalWidth;
+                let height = dogImage.naturalHeight;
+
+                if (!dogVideo.classList.contains('hidden')) {
+                    source = dogVideo;
+                    width = dogVideo.videoWidth;
+                    height = dogVideo.videoHeight;
+                    if (width === 0) {
+                        status.innerText = "影片還沒準備好汪...";
+                        return;
+                    }
+                }
+
+                const maxSize = 800;
+                if (width > maxSize || height > maxSize) {
+                    const ratio = Math.min(maxSize / width, maxSize / height);
+                    width *= ratio;
+                    height *= ratio;
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(source, 0, 0, width, height);
+                const base64Data = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                const data = await fetchWithRetry(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ 
+                            parts: [
+                                { text: "這是我最愛的狗狗，請觀察它的神情，用可愛小女孩的語氣告訴我它現在在想什麼？它看起來心情如何？" },
+                                { inlineData: { mimeType: "image/jpeg", data: base64Data } }
+                            ] 
+                        }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] }
+                    })
+                });
+
+                const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "狗狗好像在發呆耶汪！";
+                responseArea.classList.remove('hidden');
+                responseText.innerText = reply;
+                await speak(reply);
+
+            } catch (error) {
+                console.error("Vision Error:", error);
+                status.innerText = "心靈感應斷掉了汪...";
+            }
+        }
+
+        // 功能 2: 生成文字 - 寫詩
+        async function generatePoem() {
+            status.innerHTML = '正在為狗狗寫詩... ✨';
+
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                const data = await fetchWithRetry(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: "請為這隻可愛的小狗寫一首極短的童詩（20字以內），要甜美又活潑喔！" }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] }
+                    })
+                });
+
+                const poem = data.candidates?.[0]?.content?.parts?.[0]?.text || "小狗跑，小狗跳，汪汪叫！";
+                responseArea.classList.remove('hidden');
+                responseText.innerText = poem;
+                await speak(poem);
+            } catch (error) {
+                status.innerText = "寫詩寫到一半忘記了汪...";
+            }
+        }
+
+        // 功能 3: 狗狗運勢
+        async function generateFortune() {
+            status.innerHTML = '正在算狗狗今天的運氣... 🔮';
+            
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                const data = await fetchWithRetry(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: "扮演5歲小女孩，幫狗狗算今天的運勢。內容要跟吃零食、散步、睡覺有關，非常可愛。限制40字以內。" }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] }
+                    })
+                });
+
+                const fortune = data.candidates?.[0]?.content?.parts?.[0]?.text || "今天狗狗運氣超好，會有肉肉吃喔！";
+                responseArea.classList.remove('hidden');
+                responseText.innerText = fortune;
+                await speak(fortune);
+            } catch (error) {
+                status.innerText = "水晶球壞掉了汪...";
+            }
+        }
+
+        // 功能 4: 睡前故事
+        async function generateStory() {
+            status.innerHTML = '正在講睡前故事... 🌙';
+
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                const data = await fetchWithRetry(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: "扮演5歲小女孩，講一個關於這隻狗狗的超級短的睡前故事（80字內），溫馨可愛，適合哄睡覺。" }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] }
+                    })
+                });
+
+                const story = data.candidates?.[0]?.content?.parts?.[0]?.text || "從前有隻小狗睡著了，做了一個甜甜的夢，夢裡全是骨頭！晚安汪！";
+                responseArea.classList.remove('hidden');
+                responseText.innerText = story;
+                await speak(story);
+            } catch (error) {
+                status.innerText = "說故事說到睡著了...";
+            }
+        }
+
+        // 事件綁定
+        sendBtn.addEventListener('click', handleInteraction);
+        visionBtn.addEventListener('click', analyzePet);
+        poemBtn.addEventListener('click', generatePoem);
+        fortuneBtn.addEventListener('click', generateFortune);
+        storyBtn.addEventListener('click', generateStory);
+        
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleInteraction();
+        });
+        
+    </script>
+</body>
+</html>
